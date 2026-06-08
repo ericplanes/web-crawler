@@ -50,7 +50,7 @@ Example:
 com.interview
 ├── Application.java
 ├── config
-└── venue
+└── <feature>
     ├── api
     ├── application
     ├── domain
@@ -97,21 +97,19 @@ Rules:
 - Use `Operations` suffix for application/use-case interfaces.
 - Use `Service` suffix for application/use-case implementations.
 - Avoid unnecessary `Impl` suffixes when the concrete name is already clear.
-- Good: `VenueSearchOperations` -> `VenueSearchService`.
-- Good: `VenueSearchApi` -> `VenueSearchController`.
-- Good: `VenueApiOperations` -> `VenueApiClient`.
-- Good: `VenueRepository` -> `InMemoryVenueRepository` or `VenueCacheRepository`.
-- Good: `VenueSorter` -> `VenueDistanceSorter`.
+- Good: `OrderSearchOperations` -> `OrderSearchService`.
+- Good: `OrderSearchApi` -> `OrderSearchController`.
+- Good: `OrderApiOperations` -> `OrderApiClient`.
+- Good: `OrderRepository` -> `InMemoryOrderRepository` or `OrderCacheRepository`.
 
 Use specific names for domain components instead of calling everything a service.
 
 Good:
-- `VenueDistanceSorter`
-- `DistanceCalculator`
-- `VenueEligibilityChecker`
+- `PriceCalculator`
+- `OrderEligibilityChecker`
 
 Avoid:
-- `VenueFilterService` if it only sorts by distance.
+- `OrderFilterService` if it only does one thing.
 - `CommonUtils`
 - `AppUtils`
 
@@ -122,12 +120,12 @@ Application services can have two roles:
 1. Use-case/orchestration services
    - Coordinate repositories, clients, and domain components.
    - Represent a full application use case.
-   - Example: `VenueSearchService`.
+   - Example: `OrderSearchService`.
 
 2. Focused operation services/components
    - Perform one focused business/domain operation.
    - Prefer placing reusable domain behavior under `domain` with specific names.
-   - Example: `VenueDistanceSorter`.
+   - Example: `PriceCalculator`.
 
 Rules:
 
@@ -145,7 +143,7 @@ Rules:
 - Prefer **records** over classes whenever the type has no mutable state — DTOs, DBOs, constant holders, value objects, etc.
 - Use **BigDecimal** for all decimal fields, **Integer** for integers, **String** for strings. Create from strings, not doubles: `new BigDecimal("4.8")`, not `new BigDecimal(4.8)`. Use `compareTo(...)` for business comparisons — `equals(...)` only when scale matters.
 - Use **@JsonProperty** for JSON field names, use proper descriptive names for record fields (e.g., `@JsonProperty("lng") BigDecimal longitude`)
-- Names must be readable and descriptive: `latitude` not `lat`, `distanceMeters` not `distanceM`. Class names must be simple and clear.
+- Names must be readable and descriptive. Class names must be simple and clear.
 - Use **Lombok** `@UtilityClass` for static-only classes (mappers, utility classes). Prefer meaningful names like `DistanceCalculator` over generic `Utils`. Do not manually write `final class` + private constructor — let the annotation handle it.
 - Follow **SLAP**: Single Level of Abstraction Principle. Methods are either **doers** (one focused responsibility) or **orchestrators** (call doers at the same abstraction level). Never both. Top-level methods should read like a workflow — detailed logic belongs in focused private methods or dedicated collaborators.
 - Validation goes in a dedicated `validate(...)` method that throws `IllegalArgumentException` on failure. The orchestrator calls it, never inlines the checks.
@@ -153,29 +151,26 @@ Rules:
 - **Method declarations**: keep params on one line when the signature fits comfortably (~120 chars). Split one-per-line only when it doesn't fit or when annotations force it (e.g., `@Value` on constructor params).
 - **Constructor/method calls with many args** (e.g., record instantiation): one argument per line, closing parenthesis on its own line:
   ```java
-  final var venue = new Venue(
-          "v001",
-          "La Boqueria",
-          new BigDecimal("41.3816"),
-          new BigDecimal("2.1719"),
-          "Food Market",
-          new BigDecimal("4.7"),
-          "La Rambla, 91",
-          new BigDecimal("408.8")
+  final var product = new Product(
+          "p001",
+          "Wireless Mouse",
+          new BigDecimal("29.99"),
+          "Electronics",
+          true
   );
   ```
 - **Streams: one operation per line**, each `.method()` on its own line. If a lambda or comparator is hard to read inline, extract it to a named method:
   ```java
   // Bad: hard to read inline
-  return venues.stream()
-          .filter(venue -> venue.rating().compareTo(minRating) >= 0)
-          .sorted(Comparator.comparingDouble(venue -> distance(venue, lat, lng)))
+  return items.stream()
+          .filter(item -> item.price().compareTo(minPrice) >= 0)
+          .sorted(Comparator.comparing(Item::name))
           .toList();
 
   // Good: extracted to named methods
-  return venues.stream()
-          .filter(this::hasMinimumRating)
-          .sorted(byDistanceFrom(latitude, longitude))
+  return items.stream()
+          .filter(this::meetsMinimumPrice)
+          .sorted(byName())
           .toList();
   ```
 
@@ -206,7 +201,7 @@ External API JSON -> client/dto -> domain/model -> api/dto
 
 ## Javadoc
 
-- Add Javadoc to **API interface methods** (e.g., `VenueSearchApi`). These are system boundaries — document what the endpoint does, its parameters, and its return value.
+- Add Javadoc to **API interface methods**. These are system boundaries — document what the endpoint does, its parameters, and its return value.
 - Do not add Javadoc to controllers, services, repositories, or internal classes. The code should be self-explanatory there.
 - Keep Javadoc concise: one summary sentence, `@param` for each parameter, `@return` for the result. No `@throws` unless the exception is part of the contract.
 
@@ -249,12 +244,10 @@ Tests should cover:
 
 - successful path
 - validation failures
-- cache hit
-- cache miss
+- cache hit / cache miss (when caching is used)
 - external API empty/invalid response
-- optional radius present
-- optional radius absent
-- repository save after API fetch
+- optional parameters present and absent
+- repository save after fetch
 
 ## Configuration
 
@@ -266,12 +259,12 @@ Tests should cover:
 
 ## HTTP clients
 
-- Put external API calls behind a dedicated **client class** (e.g., `VenueApiClient`), separate from the service.
+- Put external API calls behind a dedicated **client class**, separate from the service.
 - **Services** orchestrate: validation, cache/repository lookup, calling the client, persistence.
 - **Client classes** own: external HTTP calls, URL paths, query params, headers, client DTOs, response validation, and mapping to domain models.
 - Clients return domain models, not client DTOs.
 - Do not scatter raw HTTP contract strings (`"lat"`, `"/api/v1/venues/search"`, `"X-Api-Key"`) across services.
-- Use **feature-local contract classes** (e.g., `VenueApiContract`) with nested groups (`Path`, `QueryParam`, `Header`). Not a global `Constants` class.
+- Use **feature-local contract classes** with nested groups (`Path`, `QueryParam`, `Header`). Not a global `Constants` class.
 - Use `UriComponentsBuilder.fromUriString()` and `queryParamIfPresent()` for optional params.
 - Fail explicitly on invalid/empty responses: `throw new IllegalStateException(...)`, not `Objects.requireNonNull(...)`.
 - Do not return null from clients. Do not hide external API failures.
@@ -280,9 +273,9 @@ Tests should cover:
 
 Example structure:
 ```
-VenueApiContract   — owns string constants for the external API
-VenueApiClient     — builds HTTP request, calls API, validates response
-VenueSearchService — validates input, checks cache, calls client, saves to cache
+<Feature>ApiContract — owns string constants for the external API
+<Feature>ApiClient   — builds HTTP request, calls API, validates response
+<Feature>Service     — validates input, checks cache, calls client, saves to cache
 ```
 
 ## Logging
@@ -311,14 +304,14 @@ VenueSearchService — validates input, checks cache, calls client, saves to cac
 
 ## Java 21 + Spring Boot 3.4 rules
 
-- Depend on **interfaces** for injectable application boundaries. Inject `RestOperations` not `RestTemplate`. Create interfaces for services (`VenueSearchOperations` → `VenueSearchService`) and other collaborators that need to be mocked.
-- If a client is injected into a service and mocked in tests, expose it through an interface (e.g., `VenueApiOperations` → `VenueApiClient`).
+- Depend on **interfaces** for injectable application boundaries. Inject `RestOperations` not `RestTemplate`. Create interfaces for services and other collaborators that need to be mocked.
+- If a client is injected into a service and mocked in tests, expose it through an interface.
 - Use `@Mock` on interfaces only. Never `@Mock` a concrete class.
 - Use **standalone MockMvc** with `MockMvcBuilders.standaloneSetup()` for controller tests. Instantiate the controller manually with mocked interfaces.
 - Use `@ExtendWith(MockitoExtension.class)` and plain `@Mock` for all tests. Do not use `@MockBean` or `@MockitoBean`.
 - Use `UriComponentsBuilder.fromUriString()` for building URLs.
 - The pom.xml must include surefire `--add-opens` args for Java 21 reflection. Do not remove them.
-- Use `@Service` for application-layer services (e.g., `VenueSearchService`). Use `@Component` for domain-layer components (e.g., `VenueDistanceSorter`).
+- Use `@Service` for application-layer services. Use `@Component` for domain-layer components.
 - Constructor injection only, no `@Autowired`. Spring Boot 3.4 with a single constructor does implicit injection.
 - Before starting the app, check whether the target port is already in use: `lsof -i :8080`
 - Do not kill processes automatically.
